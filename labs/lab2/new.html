@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Export and Import Map</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 20px;
+            margin: 10px 0;
+            color: #333;
+        }
+
+        h2 {
+            font-size: 16px;
+            margin: 5px 0;
+            color: #555;
+        }
+
+        #controls-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            margin: 10px 0;
+        }
+
+        #controls {
+            margin-right: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 500px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+        }
+
+        .legend-text {
+            font-size: 12px;
+        }
+
+        #map-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        #map {
+            width: 100%;
+            max-width: 800px;
+            height: auto;
+        }
+
+        .country {
+            stroke: #fff;
+            stroke-width: 0.5px;
+        }
+
+        .highlight {
+            stroke: #000;
+            stroke-width: 1.5px;
+        }
+
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 5px;
+            font: 12px sans-serif;
+            background: lightsteelblue;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Total Export and Import with India (2019-2020)</h1>
+
+    <!-- Controls and Legend -->
+    <div id="controls-container">
+        <div id="controls">
+            <label><input type="radio" name="data-type" value="export" checked> Export</label>
+            <label><input type="radio" name="data-type" value="import"> Import</label>
+        </div>
+        <div class="legend" id="legend"></div>
+    </div>
+
+    <!-- Map -->
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <script>
+        const width = 800;
+        const height = 450;
+
+        const svg = d3.select("#map")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        const projection = d3.geoMercator()
+            .scale(100)
+            .translate([width / 2, height / 1.5]);
+
+        const path = d3.geoPath().projection(projection);
+
+        const color = d3.scaleThreshold()
+            .domain([100, 500, 1000, 5000, 10000])
+            .range(["#e5f5e0", "#a1d99b", "#74c476", "#238b45", "#00441b"]);
+
+        const tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        d3.json("map.geojson").then(function (world) {
+            d3.csv("data.csv").then(function (data) {
+                const dataByCountry = {};
+
+                data.forEach(d => {
+                    if (d.FinancialYearStart == 2019 && d.FinancialYearEnd == 2020) {
+                        const countryName = d.Country.trim().toLowerCase();
+                        dataByCountry[countryName] = {
+                            export: +d.Export.replace(/,/g, ''),
+                            import: +d.Import.replace(/,/g, '')
+                        };
+                    }
+                });
+
+                svg.append("g")
+                    .selectAll("path")
+                    .data(world.features)
+                    .enter().append("path")
+                    .attr("d", path)
+                    .attr("class", "country")
+                    .style("fill", d => {
+                        const countryName = d.properties.name.trim().toLowerCase();
+                        const countryData = dataByCountry[countryName];
+                        return countryData ? color(countryData.export) : "#ccc";
+                    })
+                    .on("mouseover", function (event, d) {
+                        d3.select(this).classed("highlight", true);
+                        const countryName = d.properties.name.trim().toLowerCase();
+                        const countryData = dataByCountry[countryName];
+                        const selectedType = d3.select("input[name='data-type']:checked").node().value;
+                        tooltip.transition()
+                            .duration(200)
+                            .style("opacity", .9);
+                        tooltip.html(d.properties.name + "<br/>" + selectedType.charAt(0).toUpperCase() + selectedType.slice(1) + ": " +
+                            (countryData ? countryData[selectedType] : "No data"))
+                            .style("left", (event.pageX + 5) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", function () {
+                        d3.select(this).classed("highlight", false);
+                        tooltip.transition()
+                            .duration(500)
+                            .style("opacity", 0);
+                    });
+
+                d3.selectAll("input[name='data-type']").on("change", updateMap);
+
+                function updateMap() {
+                    const selectedType = d3.select("input[name='data-type']:checked").node().value;
+                    svg.selectAll(".country")
+                        .transition()
+                        .duration(500)
+                        .style("fill", d => {
+                            const countryName = d.properties.name.trim().toLowerCase();
+                            const countryData = dataByCountry[countryName];
+                            return countryData ? color(countryData[selectedType]) : "#ccc";
+                        });
+                }
+
+                const legend = d3.select("#legend");
+                const legendData = color.domain();
+
+                legendData.forEach((d, i) => {
+                    const rangeText = i === 0
+                        ? `< ${legendData[0]}`
+                        : `${legendData[i - 1]} - ${d}`;
+                    legend.append("div")
+                        .attr("class", "legend-item")
+                        .html(`
+                            <div class="legend-color" style="background-color: ${color.range()[i]};"></div>
+                            <div class="legend-text">${rangeText}</div>
+                        `);
+                });
+
+                legend.append("div")
+                    .attr("class", "legend-item")
+                    .html(`
+                        <div class="legend-color" style="background-color: ${color.range()[legendData.length]};"></div>
+                        <div class="legend-text">> ${legendData[legendData.length - 1]}</div>
+                    `);
+            });
+        });
+    </script>
+</body>
+
+</html>
